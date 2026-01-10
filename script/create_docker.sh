@@ -1,0 +1,1 @@
+ docker run -it --name get_docker -p 8888:8888 -v "${PWD}:/workspace/get_model" --gpus all 57d6b87e014d
