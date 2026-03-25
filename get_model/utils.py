@@ -69,11 +69,20 @@ def setup_trainer(cfg):
             )
         )
     )
+    # Expression finetuning logs `val_exp_loss` rather than `val_loss`.
+    checkpoint_monitor = cfg.training.get("checkpoint_monitor", "val_exp_loss")
+
     # Create both regular and finetuned checkpoints
     save_top_k = -1 if cfg.training.save_every_n_epochs is not None else 1
-    filename = "checkpoint-{epoch:03d}-{step:06d}-{val_loss:.4f}" if cfg.training.save_every_n_epochs is not None else "best"
+    if cfg.training.save_every_n_epochs is not None:
+        if checkpoint_monitor == "val_exp_loss":
+            filename = "checkpoint-{epoch:03d}-{step:06d}-{val_exp_loss:.4f}"
+        else:
+            filename = f"checkpoint-{{epoch:03d}}-{{step:06d}}-{{{checkpoint_monitor}:.4f}}"
+    else:
+        filename = "best"
     regular_checkpoint = ModelCheckpoint(
-        monitor="val_loss",
+        monitor=checkpoint_monitor,
         mode="min",
         save_top_k=save_top_k,
         save_last=True,
