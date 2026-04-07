@@ -2,6 +2,7 @@ import logging
 import os
 import os.path
 import warnings
+from collections import defaultdict
 from dataclasses import dataclass
 from posixpath import basename
 from typing import Callable, Dict, List, Optional, Tuple
@@ -911,7 +912,7 @@ class RegionMotif:
             self.atpm = self.atpm[atpm_nonzero_idx]
             self.peak_names = self.peak_names[atpm_nonzero_idx]
             self.data = self.data[atpm_nonzero_idx]
-            self._peaks = self._peaks.iloc[atpm_nonzero_idx]
+            self._peaks = self._peaks.iloc[atpm_nonzero_idx].reset_index(drop=True)
 
         if f"expression_positive/{self.celltype}" in self.dataset:
             self.expression_positive = self.dataset[
@@ -932,16 +933,24 @@ class RegionMotif:
                 self.expression_negative = self.expression_negative[atpm_nonzero_idx]
                 self.tss = self.tss[atpm_nonzero_idx]
                 gene_idx_info_drop_zero_atpm = []
-                idx_to_iloc = {v: i for i, v in enumerate(gene_idx_info_index)}
+                # Build a one-to-many mapping so that multiple genes sharing
+                # the same TSS peak are all preserved.  The previous dict-based
+                # approach ({v: i for i, v in enumerate(...)}) silently dropped
+                # all but the last gene for any peak that hosts more than one
+                # gene's promoter.
+                idx_to_ilocs = defaultdict(list)
+                for i, v in enumerate(gene_idx_info_index):
+                    idx_to_ilocs[v].append(i)
                 for idx_non_zero_atpm, idx in enumerate(atpm_nonzero_idx):
-                    if idx in idx_to_iloc:
-                        gene_idx_info_drop_zero_atpm.append(
-                            (
-                                idx_non_zero_atpm,
-                                gene_idx_info_name[idx_to_iloc[idx]],
-                                gene_idx_info_strand[idx_to_iloc[idx]],
+                    if idx in idx_to_ilocs:
+                        for pos in idx_to_ilocs[idx]:
+                            gene_idx_info_drop_zero_atpm.append(
+                                (
+                                    idx_non_zero_atpm,
+                                    gene_idx_info_name[pos],
+                                    gene_idx_info_strand[pos],
+                                )
                             )
-                        )
                 self.gene_idx_info = pd.DataFrame(
                     gene_idx_info_drop_zero_atpm,
                     columns=["index", "gene_name", "strand"],
@@ -1232,6 +1241,8 @@ class InferenceRegionMotifDataset(RegionMotifDataset):
                 strand = 0 if strand == "+" else 1
                 tss_peaks = gene_df["index"].values
                 chrom = region_motif.peaks.iloc[tss_peaks[0]]["Chromosome"]
+                if chrom not in input_chromosomes:
+                    continue
                 # Process each TSS for the gene
                 for tss_idx in tss_peaks:
                     start_idx = tss_idx - self.num_region_per_sample // 2
