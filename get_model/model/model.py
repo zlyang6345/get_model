@@ -681,7 +681,7 @@ class GETRegionFinetuneATAC(BaseGETModel):
         cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
         x, _ = self.encoder(x)
-        x = x[:, 1:]
+        x = x[:, 1:] # Remove the cls token. 
         atpm = nn.Softplus()(self.head_exp(x))
         return atpm
 
