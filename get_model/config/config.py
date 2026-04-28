@@ -254,6 +254,7 @@ class RunConfig:
     project_name: str = MISSING
     run_name: str = MISSING
     use_wandb: bool = True
+    enable_progress_bar: bool = True
 
 
 @dataclass

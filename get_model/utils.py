@@ -21,12 +21,23 @@ np.bool = np.bool_
 
 import lightning as L
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-from lightning.pytorch.loggers import CSVLogger, WandbLogger
+from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.plugins import MixedPrecision
 from omegaconf import OmegaConf
 
 
+def _is_zarr_array(value):
+    array_type = getattr(zarr, "Array", None)
+    if array_type is not None:
+        return isinstance(value, array_type)
+
+    # Fall back to the minimal array interface used below for mixed zarr versions.
+    return hasattr(value, "shape") and hasattr(value, "append")
+
+
 def setup_wandb(cfg):
+    from lightning.pytorch.loggers import WandbLogger
+
     wandb_logger = WandbLogger(
         name=cfg.run.run_name,
         project=cfg.run.project_name,
@@ -38,7 +49,22 @@ def setup_wandb(cfg):
     return wandb_logger
 
 
+def configure_trusted_checkpoint_loading(cfg):
+    if cfg.finetune.resume_ckpt is None:
+        return
+
+    if os.environ.get("TORCH_FORCE_WEIGHTS_ONLY_LOAD") is not None:
+        logging.warning(
+            "TORCH_FORCE_WEIGHTS_ONLY_LOAD is set; leaving PyTorch checkpoint loading in weights-only mode."
+        )
+        return
+
+    os.environ.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
+
+
 def setup_trainer(cfg):
+    configure_trusted_checkpoint_loading(cfg)
+
     if cfg.machine.num_devices > 0:
         strategy = "auto"
         accelerator = "gpu" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
@@ -109,6 +135,7 @@ def setup_trainer(cfg):
         logger=logger,
         callbacks=callbacks,
         plugins=plugins,
+        enable_progress_bar=cfg.run.get("enable_progress_bar", True),
         accumulate_grad_batches=cfg.training.accumulate_grad_batches,
         gradient_clip_val=cfg.training.clip_grad,
         log_every_n_steps=cfg.training.log_every_n_steps,
@@ -296,7 +323,7 @@ def recursive_save_to_zarr(zarr_group, dict_data, **kwargs):
                 # pad to the same shape
                 if (
                     isinstance(v, np.ndarray)
-                    and isinstance(zarr_group[k], zarr.core.Array)
+                    and _is_zarr_array(zarr_group[k])
                     and zarr_group[k].shape[1:] != v.shape[1:]
                 ):
                     # Handle 1D arrays differently
@@ -347,7 +374,7 @@ def cosine_scheduler(
 def recursive_print_shape(zarr_path, prefix=''):
     z = zarr.open(zarr_path)
     for key, value in z.items():
-        if isinstance(value, zarr.core.Array):
+        if _is_zarr_array(value):
             print(f"{prefix}/{key}: {value.shape}")
         else:
             recursive_print_shape(value, f"{prefix}/{key}")

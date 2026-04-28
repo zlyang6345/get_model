@@ -1,16 +1,14 @@
 import gc
 import logging
+import os
 from functools import partial
 
 import lightning as L
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import torch
 import torch.utils.data
-import wandb
 from hydra.utils import instantiate
-from matplotlib import pyplot as plt
 from minlora import LoRAParametrization
 from minlora.model import add_lora_by_name
 from omegaconf import DictConfig, OmegaConf
@@ -156,9 +154,13 @@ class RegionLitModel(LitModel):
         metrics = self.metrics(pred, obs)
         if batch_idx == 0 and self.cfg.log_image:
             # log one example as scatter plot
-            for key in pred:
-                plt.clf()
-                if self.cfg.run.use_wandb:
+            if self.cfg.run.use_wandb:
+                import seaborn as sns
+                import wandb
+                from matplotlib import pyplot as plt
+
+                for key in pred:
+                    plt.clf()
                     self.logger.experiment.log(
                         {
                             f"scatter_{key}": wandb.Image(

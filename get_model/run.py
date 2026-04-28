@@ -5,13 +5,10 @@ from functools import partial
 import lightning as L
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import torch
 import torch.utils.data
-import wandb
 import zarr
 from hydra.utils import instantiate
-from matplotlib import pyplot as plt
 from minlora import LoRAParametrization
 from minlora.model import add_lora_by_name
 from omegaconf import DictConfig
@@ -32,7 +29,6 @@ except:
     pass
 from get_model.model.model import *
 from get_model.model.modules import *
-from get_model.optim import LayerDecayValueAssigner, create_optimizer
 from get_model.utils import (
     cosine_scheduler,
     extract_state_dict,
@@ -251,9 +247,13 @@ class LitModel(L.LightningModule):
 
         if batch_idx == 0 and self.cfg.log_image:
             # log one example as scatter plot
-            for key in pred:
-                plt.clf()
-                if self.cfg.run.use_wandb:
+            if self.cfg.run.use_wandb:
+                import seaborn as sns
+                import wandb
+                from matplotlib import pyplot as plt
+
+                for key in pred:
+                    plt.clf()
                     self.logger.experiment.log(
                         {
                             f"scatter_{key}": wandb.Image(
@@ -439,16 +439,16 @@ class LitModel(L.LightningModule):
             return
             
         zarr_path = f"{self.cfg.machine.output_dir}/{self.cfg.run.project_name}/{self.cfg.run.run_name}/{self.cfg.dataset.leave_out_celltypes}.zarr"
-        print(f"Saving batch of results to {zarr_path}")
+        # print(f"Saving batch of results to {zarr_path}")
 
         from numcodecs import VLenUTF8
 
         object_codec = VLenUTF8()
         z = zarr.open(zarr_path, mode="a")
-        print(self.accumulated_results[0].keys())
+        # print(self.accumulated_results[0].keys())
         # Concatenate all accumulated results
         accumulated_results = recursive_concat_numpy(self.accumulated_results)
-        print(accumulated_results.keys())
+        # print(accumulated_results.keys())
         
         # Ensure gene names and chromosomes are properly formatted as string arrays
         if 'available_genes' in accumulated_results:
@@ -475,6 +475,8 @@ class LitModel(L.LightningModule):
                 self._save_accumulated_results()
             
     def configure_optimizers(self):
+        from get_model.optim import LayerDecayValueAssigner, create_optimizer
+
         if hasattr(self.model.cfg, "encoder"):
             num_layers = self.model.cfg.encoder.num_layers
         else:
@@ -744,7 +746,10 @@ def run_shared(cfg, model, dm, trainer=None):
     if cfg.stage == "predict":
         trainer.predict(model, datamodule=dm, ckpt_path=cfg.finetune.resume_ckpt)
     # close wandb
-    wandb.finish()
+    if cfg.run.use_wandb:
+        import wandb
+
+        wandb.finish()
     return trainer
 
 
